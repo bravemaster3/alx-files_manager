@@ -1,5 +1,3 @@
-// controllers/AuthController.js
-
 import { v4 as uuidv4 } from 'uuid';
 import sha1 from 'sha1';
 import { redisClient } from '../utils/redis';
@@ -26,7 +24,8 @@ class AuthController {
     const token = uuidv4();
     const key = `auth_${token}`;
 
-    await redisClient.set(key, user._id.toString(), 24 * 60 * 60);
+    // Store the user ID in Redis with a TTL of 24 hours (86400 seconds)
+    await redisClient.set(key, user._id.toString(), 'EX', 24 * 60 * 60);
 
     return res.status(200).json({ token });
   }
