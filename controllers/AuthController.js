@@ -23,12 +23,13 @@ class AuthController {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const token = uuidv4();
+    const accessToken = uuidv4();
     const key = `auth_${token}`;
 
-    await redisClient.set(key, user._id.toString('utf8'), 24 * 60 * 60);
+    await redisClient.set(key, user._id.toString(), 24 * 60 * 60);
 
-    return res.json({ token });
+    res.json({ token: accessToken });
+    res.end();
   }
 
   static async getDisconnect(req, res) {
@@ -41,11 +42,13 @@ class AuthController {
     const userId = await redisClient.get(key);
 
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      res.status(401).json({ error: 'Unauthorized' });
+      res.end();
+      return;
     }
 
     await redisClient.del(key);
-    return res.status(204).send();
+    res.status(204).end();
   }
 }
 
