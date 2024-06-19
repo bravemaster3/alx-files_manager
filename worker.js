@@ -1,7 +1,7 @@
-// worker.js
 import fs from 'fs/promises';
 import imageThumbnail from 'image-thumbnail';
 import Queue from 'bull';
+import { ObjectId } from 'mongodb';
 import dbClient from './utils/db';
 
 const fileQueue = new Queue('fileQueue');
@@ -18,7 +18,7 @@ fileQueue.process(async (job) => {
     throw new Error('Missing userId');
   }
 
-  const file = await dbClient.db.collection('files').findOne({ _id: fileId, userId });
+  const file = await dbClient.db.collection('files').findOne({ _id: new ObjectId(fileId), userId: new ObjectId(userId) });
 
   if (!file) {
     throw new Error('File not found');
@@ -43,7 +43,7 @@ userQueue.process(async (job) => {
     throw new Error('Missing userId');
   }
 
-  const user = await dbClient.db.collection('users').findOne({ _id: userId });
+  const user = await dbClient.db.collection('users').findOne({ _id: new ObjectId(userId) });
 
   if (!user) {
     throw new Error('User not found');

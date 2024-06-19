@@ -1,6 +1,5 @@
-// controllers/UsersController.js
-
 import sha1 from 'sha1';
+import { ObjectId } from 'mongodb'; // Import ObjectId from mongodb
 import dbClient from '../utils/db';
 import { redisClient } from '../utils/redis';
 import { userQueue } from '../worker';
@@ -21,15 +20,19 @@ class UsersController {
     const existingUser = await userCollection.findOne({ email });
 
     if (existingUser) {
-      return res.status(400).json({ error: 'Already exist' });
+      return res.status(400).json({ error: 'Already exists' });
     }
 
     const hashedPassword = sha1(password);
     const newUser = { email, password: hashedPassword };
 
     const result = await userCollection.insertOne(newUser);
+    const userId = result.insertedId;
 
-    return res.status(201).json({ id: result.insertedId, email: newUser.email });
+    // Enqueue job for sending welcome email
+    await userQueue.add({ userId });
+
+    return res.status(201).json({ id: userId, email: newUser.email });
   }
 
   static async getMe(req, res) {
@@ -46,41 +49,13 @@ class UsersController {
     }
 
     const userCollection = dbClient.db.collection('users');
-    const user = await userCollection.findOne({ _id: new dbClient.ObjectId(userId) });
+    const user = await userCollection.findOne({ _id: new ObjectId(userId) });
 
     if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     return res.status(200).json({ id: user._id, email: user.email });
-  }
-
-  static async postUser(req, res) {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ error: 'Missing email' });
-    }
-
-    const user = {
-      email,
-    };
-
-    try {
-      const result = await dbClient.db.collection('users').insertOne(user);
-      const userId = result.insertedId;
-
-      // Enqueue job for sending welcome email
-      await userQueue.add({ userId });
-
-      return res.status(201).json({
-        id: userId,
-        email,
-      });
-    } catch (err) {
-      console.error('Error creating user:', err);
-      return res.status(500).json({ error: 'Internal Server Error' });
-    }
   }
 }
 
