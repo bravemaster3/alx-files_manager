@@ -3,8 +3,12 @@ import fs from 'fs';
 import path from 'path';
 import mime from 'mime-types';
 import { ObjectId } from 'mongodb';
+import Bull from 'bull';
+import { generate } from 'image-thumbnail';
 import { redisClient } from '../utils/redis';
 import dbClient from '../utils/db';
+
+const fileQueue = new Bull('fileQueue');
 
 class FilesController {
   static async postUpload(req, res) {
@@ -54,15 +58,20 @@ class FilesController {
     };
 
     if (type === 'folder') {
-      const result = await dbClient.db.collection('files').insertOne(fileData);
-      return res.status(201).json({
-        id: result.insertedId,
-        userId,
-        name,
-        type,
-        isPublic,
-        parentId,
-      });
+      try {
+        const result = await dbClient.db.collection('files').insertOne(fileData);
+        return res.status(201).json({
+          id: result.insertedId,
+          userId,
+          name,
+          type,
+          isPublic,
+          parentId,
+        });
+      } catch (error) {
+        console.error('Error while creating folder:', error);
+        return res.status(500).json({ error: 'Internal Server Error' });
+      }
     }
 
     const FOLDER_PATH = process.env.FOLDER_PATH || '/tmp/files_manager';
@@ -71,20 +80,30 @@ class FilesController {
     }
 
     const localPath = path.join(FOLDER_PATH, uuidv4());
-    fs.writeFileSync(localPath, Buffer.from(data, 'base64'));
+    try {
+      fs.writeFileSync(localPath, Buffer.from(data, 'base64'));
 
-    fileData.localPath = localPath;
+      // Add job to Bull queue for thumbnail generation
+      await fileQueue.add({ userId, fileId: localPath });
 
-    const result = await dbClient.db.collection('files').insertOne(fileData);
-    return res.status(201).json({
-      id: result.insertedId,
-      userId,
-      name,
-      type,
-      isPublic,
-      parentId,
-      localPath,
-    });
+      fileData.localPath = localPath;
+
+      const result = await dbClient.db.collection('files').insertOne(fileData);
+
+      // Return response before processing completes
+      return res.status(201).json({
+        id: result.insertedId,
+        userId,
+        name,
+        type,
+        isPublic,
+        parentId,
+        localPath,
+      });
+    } catch (error) {
+      console.error('Error while uploading file:', error);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
   }
 
   static async getShow(req, res) {
@@ -99,13 +118,18 @@ class FilesController {
     }
 
     const fileId = req.params.id;
-    const file = await dbClient.db.collection('files').findOne({ _id: new ObjectId(fileId), userId: new ObjectId(userId) });
+    try {
+      const file = await dbClient.db.collection('files').findOne({ _id: new ObjectId(fileId), userId: new ObjectId(userId) });
 
-    if (!file) {
-      return res.status(404).json({ error: 'Not found' });
+      if (!file) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+
+      return res.status(200).json(file);
+    } catch (error) {
+      console.error('Error while fetching file:', error);
+      return res.status(500).json({ error: 'Internal Server Error' });
     }
-
-    return res.status(200).json(file);
   }
 
   static async getIndex(req, res) {
@@ -124,13 +148,18 @@ class FilesController {
     const pageSize = 20;
     const skip = page * pageSize;
 
-    const files = await dbClient.db.collection('files')
-      .find({ userId: new ObjectId(userId), parentId })
-      .skip(skip)
-      .limit(pageSize)
-      .toArray();
+    try {
+      const files = await dbClient.db.collection('files')
+        .find({ userId: new ObjectId(userId), parentId })
+        .skip(skip)
+        .limit(pageSize)
+        .toArray();
 
-    return res.status(200).json(files);
+      return res.status(200).json(files);
+    } catch (error) {
+      console.error('Error while fetching files:', error);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
   }
 
   static async putPublish(req, res) {
@@ -145,17 +174,22 @@ class FilesController {
     }
 
     const fileId = req.params.id;
-    const file = await dbClient.db.collection('files').findOneAndUpdate(
-      { _id: new ObjectId(fileId), userId: new ObjectId(userId) },
-      { $set: { isPublic: true } },
-      { returnDocument: 'after' },
-    );
+    try {
+      const file = await dbClient.db.collection('files').findOneAndUpdate(
+        { _id: new ObjectId(fileId), userId: new ObjectId(userId) },
+        { $set: { isPublic: true } },
+        { returnDocument: 'after' },
+      );
 
-    if (!file.value) {
-      return res.status(404).json({ error: 'Not found' });
+      if (!file.value) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+
+      return res.status(200).json(file.value);
+    } catch (error) {
+      console.error('Error while updating file:', error);
+      return res.status(500).json({ error: 'Internal Server Error' });
     }
-
-    return res.status(200).json(file.value);
   }
 
   static async putUnpublish(req, res) {
@@ -170,56 +204,97 @@ class FilesController {
     }
 
     const fileId = req.params.id;
-    const file = await dbClient.db.collection('files').findOneAndUpdate(
-      { _id: new ObjectId(fileId), userId: new ObjectId(userId) },
-      { $set: { isPublic: false } },
-      { returnDocument: 'after' },
-    );
+    try {
+      const file = await dbClient.db.collection('files').findOneAndUpdate(
+        { _id: new ObjectId(fileId), userId: new ObjectId(userId) },
+        { $set: { isPublic: false } },
+        { returnDocument: 'after' },
+      );
 
-    if (!file.value) {
-      return res.status(404).json({ error: 'Not found' });
+      if (!file.value) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+
+      return res.status(200).json(file.value);
+    } catch (error) {
+      console.error('Error while updating file:', error);
+      return res.status(500).json({ error: 'Internal Server Error' });
     }
-
-    return res.status(200).json(file.value);
   }
 
   static async getFile(req, res) {
     const fileId = req.params.id;
     const token = req.headers['x-token'];
 
-    const file = await dbClient.db.collection('files').findOne({ _id: new ObjectId(fileId) });
+    try {
+      const file = await dbClient.db.collection('files').findOne({ _id: new ObjectId(fileId) });
 
-    if (!file) {
-      return res.status(404).json({ error: 'Not found' });
-    }
-
-    if (!file.isPublic) {
-      if (!token) {
+      if (!file) {
         return res.status(404).json({ error: 'Not found' });
       }
 
-      const userId = await redisClient.get(`auth_${token}`);
-      if (!userId || userId.toString() !== file.userId.toString()) {
+      if (!file.isPublic) {
+        if (!token) {
+          return res.status(404).json({ error: 'Not found' });
+        }
+
+        const userId = await redisClient.get(`auth_${token}`);
+        if (!userId || userId.toString() !== file.userId.toString()) {
+          return res.status(404).json({ error: 'Not found' });
+        }
+      }
+
+      if (file.type === 'folder') {
+        return res.status(400).json({ error: "A folder doesn't have content" });
+      }
+
+      const filePath = file.localPath;
+      if (!fs.existsSync(filePath)) {
         return res.status(404).json({ error: 'Not found' });
       }
+
+      const mimeType = mime.lookup(file.name) || 'application/octet-stream';
+      res.setHeader('Content-Type', mimeType);
+      fs.createReadStream(filePath).pipe(res);
+
+      return res.status(500).json({ error: 'Unexpected error' }); // Added default response
+    } catch (error) {
+      console.error('Error while fetching file:', error);
+      return res.status(500).json({ error: 'Internal Server Error' });
     }
-
-    if (file.type === 'folder') {
-      return res.status(400).json({ error: "A folder doesn't have content" });
-    }
-
-    const filePath = file.localPath;
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Not found' });
-    }
-
-    const mimeType = mime.lookup(file.name) || 'application/octet-stream';
-    res.setHeader('Content-Type', mimeType);
-    fs.createReadStream(filePath).pipe(res);
-
-    // Add a default return statement
-    return res.status(500).json({ error: 'Unexpected error' }); // or any other appropriate default response
   }
 }
+
+// Worker function to process jobs from fileQueue
+fileQueue.process(async (job) => {
+  const { userId, fileId } = job.data;
+
+  if (!userId) {
+    throw new Error('Missing userId');
+  }
+
+  if (!fileId) {
+    throw new Error('Missing fileId');
+  }
+
+  const file = await dbClient.db.collection('files').findOne({ _id: new ObjectId(fileId), userId: new ObjectId(userId) });
+
+  if (!file) {
+    throw new Error('File not found');
+  }
+
+  const thumbnailSizes = [500, 250, 100];
+  const promises = thumbnailSizes.map((size) => {
+    const outputPath = `${file.localPath}_${size}`;
+    return generate({
+      source: file.localPath,
+      width: size,
+      height: size,
+      destination: outputPath,
+    });
+  });
+
+  await Promise.all(promises);
+});
 
 export default FilesController;
