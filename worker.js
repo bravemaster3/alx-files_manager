@@ -1,14 +1,13 @@
 // worker.js
 import fs from 'fs/promises';
-import path from 'path';
-import { v4 as uuidv4 } from 'uuid';
 import imageThumbnail from 'image-thumbnail';
-import dbClient from './utils/db';
 import Queue from 'bull';
+import dbClient from './utils/db';
 
 const fileQueue = new Queue('fileQueue');
+const userQueue = new Queue('userQueue');
 
-fileQueue.process(async job => {
+fileQueue.process(async (job) => {
   const { userId, fileId } = job.data;
 
   if (!fileId) {
@@ -27,7 +26,7 @@ fileQueue.process(async job => {
 
   const thumbnailSizes = [500, 250, 100];
 
-  await Promise.all(thumbnailSizes.map(async size => {
+  await Promise.all(thumbnailSizes.map(async (size) => {
     const options = { width: size };
     const thumbnail = await imageThumbnail(file.localPath, options);
     const thumbnailPath = `${file.localPath}_${size}`;
@@ -36,3 +35,21 @@ fileQueue.process(async job => {
 
   console.log(`Thumbnails generated for file ${fileId}`);
 });
+
+userQueue.process(async (job) => {
+  const { userId } = job.data;
+
+  if (!userId) {
+    throw new Error('Missing userId');
+  }
+
+  const user = await dbClient.db.collection('users').findOne({ _id: userId });
+
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  console.log(`Welcome ${user.email}!`);
+});
+
+export { fileQueue, userQueue };

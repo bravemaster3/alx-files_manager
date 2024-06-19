@@ -3,6 +3,7 @@
 import sha1 from 'sha1';
 import dbClient from '../utils/db';
 import { redisClient } from '../utils/redis';
+import { userQueue } from '../worker';
 
 class UsersController {
   static async postNew(req, res) {
@@ -52,6 +53,34 @@ class UsersController {
     }
 
     return res.status(200).json({ id: user._id, email: user.email });
+  }
+
+  static async postUser(req, res) {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Missing email' });
+    }
+
+    const user = {
+      email,
+    };
+
+    try {
+      const result = await dbClient.db.collection('users').insertOne(user);
+      const userId = result.insertedId;
+
+      // Enqueue job for sending welcome email
+      await userQueue.add({ userId });
+
+      return res.status(201).json({
+        id: userId,
+        email,
+      });
+    } catch (err) {
+      console.error('Error creating user:', err);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
   }
 }
 
