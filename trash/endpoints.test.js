@@ -1,5 +1,4 @@
-import { expect } from 'chai';
-import chai from 'chai';
+import chai, { expect } from 'chai';
 import chaiHttp from 'chai-http';
 import dbClient from '../utils/db'; // Import your dbClient for setup and teardown
 import server from '../server'; // Adjust this import based on your application setup
