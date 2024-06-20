@@ -5,7 +5,7 @@ import server from '../server'; // Adjust this import based on your application 
 
 chai.use(chaiHttp);
 
-describe('Endpoints', () => {
+describe('endpoints', () => {
   // Setup and teardown hooks for database or other necessary setup
   before(async () => {
     // Perform setup tasks like clearing collections, seeding data, etc.
