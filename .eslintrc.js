@@ -27,8 +27,6 @@ module.exports = {
       'LabeledStatement',
       'WithStatement',
     ],
-    'linebreak-style': 0,
-    
   },
   overrides: [
     {
