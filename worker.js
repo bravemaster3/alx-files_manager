@@ -1,4 +1,6 @@
-import fs from 'fs/promises';
+// import fs from 'fs/promises';
+import fs from 'fs';
+import { promisify } from 'util';
 import imageThumbnail from 'image-thumbnail';
 import Queue from 'bull';
 import { ObjectId } from 'mongodb';
@@ -6,6 +8,7 @@ import dbClient from './utils/db';
 
 const fileQueue = new Queue('fileQueue');
 const userQueue = new Queue('userQueue');
+const writeFile = promisify(fs.writeFile);
 
 fileQueue.process(async (job) => {
   const { userId, fileId } = job.data;
@@ -30,7 +33,7 @@ fileQueue.process(async (job) => {
     const options = { width: size };
     const thumbnail = await imageThumbnail(file.localPath, options);
     const thumbnailPath = `${file.localPath}_${size}`;
-    await fs.writeFile(thumbnailPath, thumbnail);
+    await writeFile(thumbnailPath, thumbnail);
   }));
 
   console.log(`Thumbnails generated for file ${fileId}`);
